@@ -1,1 +1,552 @@
-# DashboardFlorenza
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard สรุปยอดขายรายสาขา (Google Sheets)</title>
+    
+    <!-- Fonts: Kanit -->
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS (Styling) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js (Graphs) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Font Awesome (Icons) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        body {
+            font-family: 'Kanit', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        /* Loading Overlay */
+        #loading-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255, 255, 255, 0.9);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Date Input Styling */
+        input[type="date"] {
+            font-family: 'Kanit', sans-serif;
+        }
+    </style>
+</head>
+<body class="text-gray-800">
+
+    <!-- Loading Screen -->
+    <div id="loading-overlay">
+        <div class="spinner mb-4"></div>
+        <h2 class="text-xl font-bold text-gray-700">กำลังดึงข้อมูลจาก Google Sheets...</h2>
+        <p class="text-sm text-gray-500 mt-2">กรุณารอสักครู่ (Fetching Data)</p>
+    </div>
+
+    <!-- Navbar -->
+    <nav class="bg-white shadow-md sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex flex-col md:flex-row justify-between h-auto md:h-20 py-4 md:py-0 items-center gap-4">
+                <div class="flex items-center">
+                    <i class="fa-solid fa-chart-line text-blue-600 text-2xl mr-3"></i>
+                    <h1 class="text-xl font-bold text-gray-800">Sales Dashboard</h1>
+                </div>
+                
+                <!-- Filters Area -->
+                <div class="flex flex-col md:flex-row items-center gap-3">
+                    
+                    <!-- Date Filter -->
+                    <div class="flex items-center bg-gray-50 rounded-lg p-1 border border-gray-200">
+                        <div class="px-2 text-gray-500 text-sm"><i class="fa-regular fa-calendar"></i></div>
+                        <input type="date" id="startDate" onchange="updateDashboard()" class="bg-transparent border-none text-sm text-gray-700 focus:ring-0 py-1">
+                        <span class="text-gray-400 px-1">-</span>
+                        <input type="date" id="endDate" onchange="updateDashboard()" class="bg-transparent border-none text-sm text-gray-700 focus:ring-0 py-1">
+                    </div>
+
+                    <!-- Branch Selector -->
+                    <div class="flex items-center">
+                        <div class="relative">
+                            <select id="branchSelect" onchange="handleBranchChange()" class="block appearance-none w-40 bg-gray-50 border border-gray-300 text-gray-700 py-2 px-4 pr-8 rounded leading-tight focus:outline-none focus:bg-white focus:border-blue-500 transition duration-150 ease-in-out font-medium text-sm">
+                                <option value="ALL">รวมทุกสาขา</option>
+                                <option value="FRC">FRC</option>
+                                <option value="BSK">BSK</option>
+                                <option value="FRB">FRB</option>
+                                <option value="FRS">FRS</option>
+                                <option value="FRR">FRR</option>
+                            </select>
+                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+                                <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        <!-- SECTION 1: Financial & Marketing Summary -->
+        <div class="flex items-center justify-between mb-4 px-1 border-l-4 border-blue-600 pl-2">
+            <h3 class="text-lg font-bold text-gray-700">สรุปยอดขายและการตลาด</h3>
+            <span id="date-range-display" class="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">All Time</span>
+        </div>
+        
+        <!-- Adjusted grid to fit 7 cards comfortably (4 top, 3 bottom on large screens) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
+            <!-- 1. Total Sales -->
+            <div class="bg-white rounded-xl shadow p-4 card-hover border-t-4 border-green-500">
+                <p class="text-xs text-gray-500 font-medium mb-1">ยอดขายรวม</p>
+                <h3 class="text-xl font-bold text-gray-800 mb-2" id="val-total-sales">0 ฿</h3>
+                <div class="flex justify-between items-end">
+                    <p class="text-[10px] text-green-600">Total Revenue</p>
+                    <i class="fa-solid fa-sack-dollar text-green-200 text-xl"></i>
+                </div>
+            </div>
+
+            <!-- 2. Online Sales -->
+            <div class="bg-white rounded-xl shadow p-4 card-hover border-t-4 border-teal-500">
+                <p class="text-xs text-gray-500 font-medium mb-1">ยอดขายออนไลน์</p>
+                <h3 class="text-xl font-bold text-gray-800 mb-2" id="val-online-sales">0 ฿</h3>
+                <div class="flex justify-between items-end">
+                    <p class="text-[10px] text-teal-600">Online Channel</p>
+                    <i class="fa-solid fa-globe text-teal-200 text-xl"></i>
+                </div>
+            </div>
+
+            <!-- 3. Online Sales P1 (Ads) from Col J -->
+            <div class="bg-white rounded-xl shadow p-4 card-hover border-t-4 border-amber-500">
+                <p class="text-xs text-gray-500 font-medium mb-1">ยอดขายออนไลน์ P1 (รายวัน Ads)</p>
+                <h3 class="text-xl font-bold text-gray-800 mb-2" id="val-p1-amount-card">0 ฿</h3>
+                <div class="flex justify-between items-end">
+                    <p class="text-[10px] text-amber-600">Daily Ads (Col J)</p>
+                    <i class="fa-solid fa-ad text-amber-200 text-xl"></i>
+                </div>
+            </div>
+
+            <!-- 7. Ads Spend (Moved Here) -->
+            <div class="bg-white rounded-xl shadow p-4 card-hover border-t-4 border-red-500">
+                <p class="text-xs text-gray-500 font-medium mb-1">Ads Spend</p>
+                <h3 class="text-xl font-bold text-gray-800 mb-2" id="val-ads">0 ฿</h3>
+                <div class="flex justify-between items-end">
+                    <p class="text-[10px] text-red-600">ROAS: <span id="val-roas">0x</span></p>
+                    <i class="fa-solid fa-bullhorn text-red-200 text-xl"></i>
+                </div>
+            </div>
+
+            <!-- 4. Bill P1 Count & Amount (Updated) -->
+            <div class="bg-white rounded-xl shadow p-4 card-hover border-t-4 border-orange-500">
+                <p class="text-xs text-gray-500 font-medium mb-1">จำนวนบิล P1</p>
+                <div class="flex items-baseline gap-2">
+                    <h3 class="text-xl font-bold text-gray-800 mb-1" id="val-p1-count-card">0</h3>
+                    <span class="text-xs text-gray-500">ใบ</span>
+                </div>
+                <p class="text-sm text-orange-600 font-bold mb-1" id="val-p1-amount-sub">0 ฿</p>
+                <div class="flex justify-between items-end">
+                    <p class="text-[10px] text-gray-400">(Col I, J)</p>
+                    <i class="fa-solid fa-file-invoice text-orange-200 text-xl"></i>
+                </div>
+            </div>
+
+            <!-- 5. Bill P2 Count -->
+            <div class="bg-white rounded-xl shadow p-4 card-hover border-t-4 border-pink-500">
+                <p class="text-xs text-gray-500 font-medium mb-1">จำนวนบิล P2</p>
+                <h3 class="text-xl font-bold text-gray-800 mb-2" id="val-p2-count-card">0</h3>
+                <div class="flex justify-between items-end">
+                    <p class="text-[10px] text-pink-600">ใบ (Col K)</p>
+                    <i class="fa-solid fa-file-invoice-dollar text-pink-200 text-xl"></i>
+                </div>
+            </div>
+
+            <!-- 6. Messages -->
+            <div class="bg-white rounded-xl shadow p-4 card-hover border-t-4 border-indigo-500">
+                <p class="text-xs text-gray-500 font-medium mb-1">ข้อความทัก</p>
+                <h3 class="text-xl font-bold text-gray-800 mb-2" id="val-messages">0</h3>
+                <div class="flex justify-between items-end">
+                    <p class="text-[10px] text-indigo-600">ปิดการขาย: <span id="val-conversion">0%</span></p>
+                    <i class="fa-solid fa-comments text-indigo-200 text-xl"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 2: Bed Units -->
+        <h3 class="text-lg font-bold text-gray-700 mb-4 px-1 border-l-4 border-blue-600 pl-2">สรุปข้อมูลจำนวนเตียง (Units)</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <!-- 1. จำนวนเตียงรวม -->
+            <div class="bg-white rounded-xl shadow p-6 card-hover border-l-4 border-blue-600">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-500 font-medium">จำนวนเตียงทั้งหมด</p>
+                        <h3 class="text-3xl font-bold text-blue-700" id="val-total-beds">0</h3>
+                        <p class="text-xs text-gray-400 mt-1">Units (Total)</p>
+                    </div>
+                    <div class="p-4 bg-blue-50 rounded-full text-blue-600">
+                        <i class="fa-solid fa-bed text-2xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. เตียงลูกค้าใหม่ -->
+            <div class="bg-white rounded-xl shadow p-6 card-hover border-l-4 border-cyan-500">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-500 font-medium">ลูกค้าเตียงใหม่</p>
+                        <h3 class="text-3xl font-bold text-cyan-600" id="val-new-beds">0</h3>
+                        <p class="text-xs text-gray-400 mt-1">New Customers (Col D)</p>
+                    </div>
+                    <div class="p-4 bg-cyan-50 rounded-full text-cyan-600">
+                        <i class="fa-solid fa-user-plus text-2xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. เตียงลูกค้าเก่า -->
+            <div class="bg-white rounded-xl shadow p-6 card-hover border-l-4 border-purple-500">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-500 font-medium">ลูกค้าเก่า</p>
+                        <h3 class="text-3xl font-bold text-purple-600" id="val-old-beds">0</h3>
+                        <p class="text-xs text-gray-400 mt-1">Old Customers (Col E)</p>
+                    </div>
+                    <div class="p-4 bg-purple-50 rounded-full text-purple-600">
+                        <i class="fa-solid fa-user-clock text-2xl"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 3: Charts & Details -->
+        <div class="grid grid-cols-1 gap-8 mb-8">
+            <!-- Details Breakdown -->
+            <div class="bg-white p-6 rounded-xl shadow">
+                <!-- Changed Header Name -->
+                <h3 class="text-lg font-bold text-gray-700 mb-4 border-b pb-2">รายละเอียดบิล</h3>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    <!-- 1. จำนวนบิล UP P1 -->
+                    <div class="bg-blue-50 p-4 rounded-lg text-center border border-blue-100">
+                        <p class="text-xs text-gray-500 mb-1">จำนวนบิล UP P1</p>
+                        <h4 class="text-xl font-bold text-blue-800" id="val-up-p1-count">0</h4>
+                        <p class="text-[10px] text-gray-400">ใบ (Col L)</p>
+                    </div>
+                    <!-- 2. ยอด UP P1 -->
+                    <div class="bg-blue-50 p-4 rounded-lg text-center border border-blue-100">
+                        <p class="text-xs text-gray-500 mb-1">ยอด UP P1</p>
+                        <h4 class="text-xl font-bold text-blue-600" id="val-up-p1-amount">0</h4>
+                        <p class="text-[10px] text-gray-400">บาท (Col M)</p>
+                    </div>
+                    <!-- 3. จำนวนบิล UP P2 -->
+                    <div class="bg-purple-50 p-4 rounded-lg text-center border border-purple-100">
+                        <p class="text-xs text-gray-500 mb-1">จำนวนบิล UP P2</p>
+                        <h4 class="text-xl font-bold text-purple-800" id="val-up-p2-count">0</h4>
+                        <p class="text-[10px] text-gray-400">ใบ (Col N)</p>
+                    </div>
+                    <!-- 4. ยอด UP P2 -->
+                    <div class="bg-purple-50 p-4 rounded-lg text-center border border-purple-100">
+                        <p class="text-xs text-gray-500 mb-1">ยอด UP P2</p>
+                        <h4 class="text-xl font-bold text-purple-600" id="val-up-p2-amount">0</h4>
+                        <p class="text-[10px] text-gray-400">บาท (Col O)</p>
+                    </div>
+                </div>
+
+                <div class="relative h-72 w-full">
+                    <canvas id="financeChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <footer class="bg-white border-t mt-12 py-6">
+        <div class="max-w-7xl mx-auto px-4 text-center text-gray-500 text-sm">
+            <p>&copy; 2024 Furniture Sales Dashboard. Connected to Google Sheets.</p>
+        </div>
+    </footer>
+
+    <!-- JavaScript Logic -->
+    <script>
+        // ==========================================
+        // CONFIGURATION (ตั้งค่า)
+        // ==========================================
+        const SHEET_ID = '19gsmaLUTTtw1O_2_uLyJq3PD7Y2TYN7mjGFu79LvfFA';
+        const TAB_NAMES = ['FRC', 'BSK', 'FRB', 'FRS', 'FRR'];
+
+        // *** ตรวจสอบการ Mapping Column (UPDATE) ***
+        const COLUMN_CONFIG = {
+            date: 0,            // A: วันที่
+            totalSales: 1,      // B: ยอดขายรวม
+            totalBeds: 2,       // C: จำนวนเตียงรวม
+            newBeds: 3,         // D: ลูกค้าเตียงใหม่
+            oldBeds: 4,         // E: ลูกค้าเก่า
+            onlineSales: 5,     // F: ยอดขายออนไลน์
+            adsSpend: 6,        // G: Ads Spend
+            messages: 7,        // H: ข้อความทัก (แก้ไขตาม request)
+            billP1Count: 8,     // I: จำนวนบิล P1 (Count)
+            billP1Amount: 9,    // J: Online Sales P1 (Ads) / Bill P1 Amount
+            billP2Count: 10,    // K: จำนวนบิล P2 (Count)
+            // L, M, N, O New Mappings
+            billUpP1Count: 11,  // L: จำนวนบิล UP P1
+            billUpP1Amount: 12, // M: ยอด UP P1
+            billUpP2Count: 13,  // N: จำนวนบิล UP P2
+            billUpP2Amount: 14  // O: ยอด UP P2
+        };
+
+        // ==========================================
+        // DATA STORAGE
+        // ==========================================
+        let allBranchRawRows = {};
+        let isDataLoaded = false;
+        let financeChartInstance = null;
+
+        // ==========================================
+        // FUNCTIONS
+        // ==========================================
+
+        async function fetchAllData() {
+            const promises = TAB_NAMES.map(tab => fetchSheetData(tab));
+            try {
+                const results = await Promise.all(promises);
+                results.forEach((rows, index) => {
+                    allBranchRawRows[TAB_NAMES[index]] = rows;
+                });
+                isDataLoaded = true;
+                document.getElementById('loading-overlay').style.display = 'none';
+                updateDashboard();
+
+            } catch (error) {
+                console.error("Error fetching data:", error);
+                document.getElementById('loading-overlay').innerHTML = `
+                    <div class="text-center p-6 bg-white rounded-lg shadow-xl">
+                        <i class="fa-solid fa-triangle-exclamation text-red-500 text-4xl mb-4"></i>
+                        <h2 class="text-xl font-bold text-red-600">เกิดข้อผิดพลาด</h2>
+                        <p class="text-gray-600 mt-2">${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function fetchSheetData(sheetName) {
+            return new Promise((resolve, reject) => {
+                const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${sheetName}`;
+
+                fetch(url)
+                    .then(response => response.text())
+                    .then(text => {
+                        const jsonText = text.substring(47).slice(0, -2);
+                        const json = JSON.parse(jsonText);
+                        resolve(json.table.rows);
+                    })
+                    .catch(err => reject(err));
+            });
+        }
+
+        function calculateSummary(rows, startDateStr, endDateStr) {
+            let summary = getZeroData();
+            
+            const startDate = startDateStr ? new Date(startDateStr) : null;
+            const endDate = endDateStr ? new Date(endDateStr) : null;
+
+            if (startDate) startDate.setHours(0,0,0,0);
+            if (endDate) endDate.setHours(23,59,59,999);
+
+            rows.forEach(row => {
+                let isValidDate = true;
+                if (startDate || endDate) {
+                    const dateCell = row.c[COLUMN_CONFIG.date];
+                    if (!dateCell) {
+                        isValidDate = false;
+                    } else {
+                        let rowDate = parseGoogleDate(dateCell.v) || parseGoogleDate(dateCell.f);
+                        if (!rowDate) {
+                            isValidDate = false; 
+                        } else {
+                            if (startDate && rowDate < startDate) isValidDate = false;
+                            if (endDate && rowDate > endDate) isValidDate = false;
+                        }
+                    }
+                }
+
+                if (!isValidDate) return;
+
+                const getVal = (idx) => {
+                    if (row.c[idx] && row.c[idx].v !== null) {
+                        let val = row.c[idx].v;
+                        if (typeof val === 'string') val = parseFloat(val.replace(/,/g, ''));
+                        return Number(val) || 0;
+                    }
+                    return 0;
+                };
+
+                summary.totalSales += getVal(COLUMN_CONFIG.totalSales);
+                summary.totalBeds += getVal(COLUMN_CONFIG.totalBeds);
+                summary.newBeds += getVal(COLUMN_CONFIG.newBeds);
+                summary.oldBeds += getVal(COLUMN_CONFIG.oldBeds);
+                summary.onlineSales += getVal(COLUMN_CONFIG.onlineSales);
+                summary.adsSpend += getVal(COLUMN_CONFIG.adsSpend);
+                
+                // Now using column 7 for messages
+                summary.messages += getVal(COLUMN_CONFIG.messages); 
+
+                summary.billP1Count += getVal(COLUMN_CONFIG.billP1Count);
+                summary.billP1Amount += getVal(COLUMN_CONFIG.billP1Amount); // Col J
+                summary.billP2Count += getVal(COLUMN_CONFIG.billP2Count);
+                
+                // New Fields
+                summary.billUpP1Count += getVal(COLUMN_CONFIG.billUpP1Count);
+                summary.billUpP1Amount += getVal(COLUMN_CONFIG.billUpP1Amount);
+                summary.billUpP2Count += getVal(COLUMN_CONFIG.billUpP2Count);
+                summary.billUpP2Amount += getVal(COLUMN_CONFIG.billUpP2Amount);
+            });
+
+            return summary;
+        }
+
+        function parseGoogleDate(value) {
+            if (!value) return null;
+            if (typeof value === 'string' && value.startsWith('Date(')) {
+                const parts = value.match(/\d+/g);
+                if (parts && parts.length >= 3) {
+                    return new Date(parts[0], parts[1], parts[2]);
+                }
+            }
+            const d = new Date(value);
+            if (!isNaN(d.getTime())) return d;
+            return null;
+        }
+
+        function getZeroData() {
+            return {
+                totalSales: 0, totalBeds: 0, newBeds: 0, oldBeds: 0,
+                onlineSales: 0, adsSpend: 0, messages: 0, 
+                billP1Count: 0, billP1Amount: 0, billP2Count: 0, 
+                billUpP1Count: 0, billUpP1Amount: 0, billUpP2Count: 0, billUpP2Amount: 0
+            };
+        }
+
+        const formatCurrency = (num) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB', maximumFractionDigits: 0 }).format(num);
+        const formatNumber = (num) => new Intl.NumberFormat('th-TH').format(num);
+
+        function updateDashboard() {
+            if (!isDataLoaded) return;
+
+            const selectedBranch = document.getElementById('branchSelect').value;
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+
+            const dateText = (startDate || endDate) 
+                ? `${startDate || '...'} ถึง ${endDate || '...'}`
+                : "All Time (ทั้งหมด)";
+            document.getElementById('date-range-display').innerText = dateText;
+
+            let finalSummary = getZeroData();
+            
+            if (selectedBranch === 'ALL') {
+                Object.values(allBranchRawRows).forEach(rows => {
+                    const branchSummary = calculateSummary(rows, startDate, endDate);
+                    for (let key in finalSummary) finalSummary[key] += branchSummary[key];
+                });
+            } else {
+                const rows = allBranchRawRows[selectedBranch] || [];
+                finalSummary = calculateSummary(rows, startDate, endDate);
+            }
+
+            renderDataToUI(finalSummary, selectedBranch);
+        }
+
+        function renderDataToUI(data, branchName) {
+            // Update Financial Cards
+            document.getElementById('val-total-sales').innerText = formatCurrency(data.totalSales);
+            document.getElementById('val-online-sales').innerText = formatCurrency(data.onlineSales);
+            document.getElementById('val-messages').innerText = formatNumber(data.messages);
+            document.getElementById('val-ads').innerText = formatCurrency(data.adsSpend);
+            
+            // New Cards in Summary
+            document.getElementById('val-p1-amount-card').innerText = formatCurrency(data.billP1Amount); 
+            
+            // Update Bill P1 Card (Count & Amount)
+            document.getElementById('val-p1-count-card').innerText = formatNumber(data.billP1Count);
+            document.getElementById('val-p1-amount-sub').innerText = formatCurrency(data.billP1Amount);
+
+            document.getElementById('val-p2-count-card').innerText = formatNumber(data.billP2Count);
+
+            // Update Bed Cards
+            document.getElementById('val-total-beds').innerText = formatNumber(data.totalBeds);
+            document.getElementById('val-new-beds').innerText = formatNumber(data.newBeds);
+            document.getElementById('val-old-beds').innerText = formatNumber(data.oldBeds);
+            
+            // Update Details Section (New UP P1/P2)
+            document.getElementById('val-up-p1-count').innerText = formatNumber(data.billUpP1Count);
+            document.getElementById('val-up-p1-amount').innerText = formatNumber(data.billUpP1Amount);
+            document.getElementById('val-up-p2-count').innerText = formatNumber(data.billUpP2Count);
+            document.getElementById('val-up-p2-amount').innerText = formatNumber(data.billUpP2Amount);
+
+            // KPI - Updated ROAS to use onlineSales
+            const roas = data.adsSpend > 0 ? (data.onlineSales / data.adsSpend).toFixed(2) : 0;
+            document.getElementById('val-roas').innerText = `${roas}x`;
+            const conversion = data.messages > 0 ? ((data.billP1Count / data.messages) * 100).toFixed(1) : 0;
+            document.getElementById('val-conversion').innerText = `${conversion}%`;
+            
+            renderCharts(data);
+        }
+
+        function handleBranchChange() {
+            updateDashboard();
+        }
+
+        function renderCharts(data) {
+            const ctxFinance = document.getElementById('financeChart').getContext('2d');
+            if (financeChartInstance) financeChartInstance.destroy();
+
+            financeChartInstance = new Chart(ctxFinance, {
+                type: 'bar',
+                data: {
+                    // Updated labels and data based on request
+                    labels: ['Ads Spend', 'ยอดบิล P1 (Ads)', 'ยอด UP P1', 'ยอด UP P2'],
+                    datasets: [{
+                        label: 'จำนวนเงิน (THB)',
+                        data: [data.adsSpend, data.billP1Amount, data.billUpP1Amount, data.billUpP2Amount],
+                        backgroundColor: ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6'],
+                        borderRadius: 5
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#f3f4f6' } },
+                        x: { grid: { display: false } }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        window.onload = function() {
+            fetchAllData();
+        };
+
+    </script>
+</body>
+</html>
